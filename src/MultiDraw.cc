@@ -1,4 +1,5 @@
 #include "../interface/MultiDraw.h"
+#include "../interface/Task.h"
 
 #include "TFile.h"
 #include "TBranch.h"
@@ -15,6 +16,8 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <atomic>
+#include <thread>
 
 multidraw::MultiDraw::MultiDraw(char const* _treeName/* = "events"*/) :
   tree_(_treeName),
@@ -325,6 +328,43 @@ multidraw::MultiDraw::execute(long _nEntries/* = -1*/, long _firstEntry/* = 0*/)
 
   std::vector<double> eventWeights;
 
+  // Thread-related objects
+  TaskQueue queue;
+  std::mutex mutex;
+  std::atomic_uint workCount{0};
+  std::atomic_flag terminate;
+  terminate.clear();
+
+  auto consumeTask([&queue, &mutex, &workCount]() {
+                     TaskBase* task{nullptr};
+                     while (true) {
+                       if (terminate)
+                         break;
+                       
+                       task = nullptr;
+                       
+                       {
+                         std::lock_guard<std::mutex> lock(mutex);
+                         if (queue.pop(task))
+                           ++workCount;
+                         else
+                           continue;
+                       }
+                       task->execute();
+                       --workCount;
+                     }
+                   });
+  
+  std::vector<std::thread*> consumers;
+  std::vector<CutTask*> cutTasks;
+  if (numThreads_ > 1) {
+    for (auto* cut : cuts)
+      cutTasks.push_back(new CutTask(*cut, eventWeights, queue));
+
+    for (unsigned iT(0); iT != nThreads_; ++iT)
+      consumers.push_back(new std::thread(consumeTask));
+  }
+
   long long iEntry(_firstEntry);
   long long iEntryMax(_firstEntry + _nEntries);
   int treeNumber(-1);
@@ -507,10 +547,23 @@ multidraw::MultiDraw::execute(long _nEntries/* = -1*/, long _firstEntry/* = 0*/)
       std::cout << std::endl;
     }
 
-    cuts[0]->fillExprs(eventWeights);
-    for (unsigned iC(1); iC != cuts.size(); ++iC) {
-      if (cuts[iC]->evaluate())
-        cuts[iC]->fillExprs(eventWeights);
+    if (numThreads_ == 1) {
+      cuts[0]->fillExprs(eventWeights);
+      for (unsigned iC(1); iC != cuts.size(); ++iC) {
+        if (cuts[iC]->evaluate())
+          cuts[iC]->fillExprs(eventWeights);
+      }
+    }
+    else {
+      cutTasks[0]->executeFillers();
+      for (unsigned iC(1); iC != cutTasks.size(); ++iC)
+        queue.push(cutTasks[iC]);
+
+      while (true) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (queue.empty() && workCount == 0)
+          break;
+      }
     }
   }
 

@@ -1,5 +1,6 @@
 #include "../interface/Cut.h"
 #include "../interface/ExprFiller.h"
+#include "../interface/Task.h"
 
 #include <iostream>
 
@@ -95,4 +96,13 @@ multidraw::Cut::fillExprs(std::vector<double> const& _eventWeights)
 
   for (auto* filler : fillers_)
     filler->fill(_eventWeights, instanceMask_);
+}
+
+multidraw::FillerTask*
+multidraw::Cut::makeFillerTask(unsigned _i, std::vector<double> const& _eventWeights)
+{
+  if (_i >= fillers_.size())
+    return nullptr;
+
+  return new FillerTask(fillers_[_i], _eventWeights, instanceMask_);
 }

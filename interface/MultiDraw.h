@@ -97,6 +97,7 @@ namespace multidraw {
     //! Run and fill the plots and trees.
     void execute(long nEntries = -1, long firstEntry = 0);
 
+    void setNumThreads(unsigned n) { numThreads_ = n; }
     void setPrintLevel(int l) { printLevel_ = l; }
     long getTotalEvents() const { return totalEvents_; }
 
@@ -125,6 +126,7 @@ namespace multidraw {
     std::map<int, std::pair<double, bool>> treeWeight_{};
     std::map<int, std::pair<Evaluable, bool>> treeReweight_{};
 
+    unsigned numThreads_{1};
     int printLevel_{0};
     long totalEvents_{0};
   };

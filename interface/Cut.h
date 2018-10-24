@@ -11,6 +11,7 @@
 namespace multidraw {
 
   class ExprFiller;
+  class FillerTask;
 
   class Cut {
   public:
@@ -20,7 +21,7 @@ namespace multidraw {
 
     TString const& getName() const { return name_; }
     unsigned getNFillers() const { return fillers_.size(); }
-    ExprFiller const* getFiller(unsigned i) { return fillers_.at(i); }
+    ExprFiller const* getFiller(unsigned i) const { return fillers_.at(i); }
 
     void addFiller(ExprFiller& _filler) { fillers_.push_back(&_filler); }
     void setFormula(TTreeFormulaCachedPtr const&);
@@ -30,6 +31,8 @@ namespace multidraw {
     unsigned getCount() const { return counter_; }
     bool evaluate();
     void fillExprs(std::vector<double> const& eventWeights);
+
+    FillerTask* makeFillerTask(unsigned i, std::vector<double> const& eventWeights);
 
   protected:
     TString name_;
