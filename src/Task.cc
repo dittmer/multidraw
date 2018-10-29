@@ -2,26 +2,32 @@
 #include "../interface/ExprFiller.h"
 #include "../interface/Cut.h"
 
-multidraw::FillerTask::FillerTask(ExprFiller& _filler, std::vector<double> const& _eventWeights, std::vector<bool>* const& _mask) :
-  filler_(_filler),
-  eventWeights_(_eventWeights),
-  mask_(_mask)
+multidraw::TaskBase::TaskBase(std::condition_variable& _condition) :
+  condition_(_condition)
+{
+}
+
+multidraw::FillerTask::FillerTask(std::function<void(std::vector<double> const&)> const& _fillExpr, std::vector<double> const& _eventWeights, std::condition_variable& _condition) :
+  TaskBase(_condition),
+  fillExpr_(_fillExpr),
+  eventWeights_(_eventWeights)
 {
 }
 
 void
 multidraw::FillerTask::execute()
 {
-  filler_.fill(eventWeights_, mask_);
+  fillExpr_(eventWeights_);
 }
 
-multidraw::CutTask::CutTask(Cut& _cut, std::vector<double> const& _eventWeights, TaskQueue& _queue) :
+multidraw::CutTask::CutTask(Cut& _cut, std::vector<double> const& _eventWeights, TaskQueue& _queue, std::condition_variable& _condition) :
+  TaskBase(_condition),
   cut_(_cut),
   eventWeights_(_eventWeights),
   queue_(_queue)
 {
   for (unsigned iF(0); iF != cut_.getNFillers(); ++iF)
-    fillerTasks_.push_back(cut_.makeFillerTask(iF, _eventWeights));
+    fillerTasks_.push_back(new FillerTask(cut_.getFillExpr(iF), _eventWeights));
 }
 
 void

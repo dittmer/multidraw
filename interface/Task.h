@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <memory>
+#include <condition_variable>
 
 #include <boost/lockfree/queue.hpp>
 
@@ -13,29 +14,31 @@ namespace multidraw {
 
   class TaskBase {
   public:
-    TaskBase() {}
+    TaskBase(std::condition_variable&);
     virtual ~TaskBase() {}
 
     virtual void execute() = 0;
+
+  protected:
+    std::condition_variable& condition_;
   };
 
   typedef boost::lockfree::queue<TaskBase*> TaskQueue;
 
   class FillerTask {
   public:
-    FillerTask(ExprFiller&, std::vector<double> const& eventWeights, std::vector<bool>* const& mask);
+    FillerTask(std::function<void(std::vector<double> const&)> const& fillExpr, std::vector<double> const& eventWeights, std::condition_variable&);
 
     void execute() override;
 
   private:
-    ExprFiller& filler_;
+    std::function<void(std::vector<double> const&)> fillExpr_;
     std::vector<double> const& eventWeights_;
-    std::vector<bool>* const& mask_;
   };
 
   class CutTask {
   public:
-    CutTask(Cut&, std::vector<double> const& eventWeights, TaskQueue& queue);
+    CutTask(Cut&, std::vector<double> const& eventWeights, TaskQueue& queue, std::condition_variable&);
 
     void execute() override;
     void executeFillers();

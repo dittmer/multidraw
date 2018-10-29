@@ -7,11 +7,11 @@
 #include "TString.h"
 
 #include <vector>
+#include <functional>
 
 namespace multidraw {
 
   class ExprFiller;
-  class FillerTask;
 
   class Cut {
   public:
@@ -32,7 +32,7 @@ namespace multidraw {
     bool evaluate();
     void fillExprs(std::vector<double> const& eventWeights);
 
-    FillerTask* makeFillerTask(unsigned i, std::vector<double> const& eventWeights);
+    std::function<void(std::vector<double> const&)> getFillExpr(unsigned) const;
 
   protected:
     TString name_;

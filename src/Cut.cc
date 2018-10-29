@@ -107,11 +107,13 @@ multidraw::Cut::fillExprs(std::vector<double> const& _eventWeights)
     filler->fill(_eventWeights, instanceMask_);
 }
 
-multidraw::FillerTask*
-multidraw::Cut::makeFillerTask(unsigned _i, std::vector<double> const& _eventWeights)
+std::function<void(std::vector<double> const&)>
+multidraw::Cut::getFillExpr(unsigned _iFiller) const
 {
-  if (_i >= fillers_.size())
-    return nullptr;
-
-  return new FillerTask(fillers_[_i], _eventWeights, instanceMask_);
+  if (_iFiller >= fillers_.size())
+    throw std::out_of_range("fillExpr operator for an invalid filler requested");
+      
+  return [this, _iFiller](std::vector<double> const& _eventWeights) {
+           this->fillers_[_iFiller]->fill(_eventWeights, this->instanceMask_);
+         };
 }

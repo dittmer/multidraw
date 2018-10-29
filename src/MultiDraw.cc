@@ -344,7 +344,7 @@ multidraw::MultiDraw::execute(long _nEntries/* = -1*/, long _firstEntry/* = 0*/)
   }
 
   // Also delete unused formulas
-  // Cannot do this because there are formulas captured by lambdas
+  // -> No, we cannot do this because there are formulas captured by lambdas
   //  library_.prune();
 
   std::vector<double> eventWeights;
@@ -352,27 +352,18 @@ multidraw::MultiDraw::execute(long _nEntries/* = -1*/, long _firstEntry/* = 0*/)
   // Thread-related objects
   TaskQueue queue;
   std::mutex mutex;
-  std::atomic_uint workCount{0};
   std::atomic_flag terminate;
   terminate.clear();
 
-  auto consumeTask([&queue, &mutex, &workCount]() {
+  auto consumeTask([&queue, &mutex]() {
                      TaskBase* task{nullptr};
                      while (true) {
                        if (terminate)
                          break;
                        
                        task = nullptr;
-                       
-                       {
-                         std::lock_guard<std::mutex> lock(mutex);
-                         if (queue.pop(task))
-                           ++workCount;
-                         else
-                           continue;
-                       }
-                       task->execute();
-                       --workCount;
+                       if (queue.pop(task))
+                         task->execute();
                      }
                    });
   
