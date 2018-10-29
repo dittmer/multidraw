@@ -1,5 +1,4 @@
 #include "../interface/MultiDraw.h"
-#include "../interface/Task.h"
 
 #include "TFile.h"
 #include "TBranch.h"
@@ -20,6 +19,9 @@
 #include <thread>
 #include <chrono>
 #include <numeric>
+#include <functional>
+#include <thread>
+#include <condition_variable>
 
 multidraw::MultiDraw::MultiDraw(char const* _treeName/* = "events"*/) :
   tree_(_treeName),
@@ -350,31 +352,53 @@ multidraw::MultiDraw::execute(long _nEntries/* = -1*/, long _firstEntry/* = 0*/)
   std::vector<double> eventWeights;
 
   // Thread-related objects
-  TaskQueue queue;
+  typedef std::function<void(void)> ThreadTask;
+    
   std::mutex mutex;
-  std::atomic_flag terminate;
-  terminate.clear();
-
-  auto consumeTask([&queue, &mutex]() {
-                     TaskBase* task{nullptr};
-                     while (true) {
-                       if (terminate)
-                         break;
-                       
-                       task = nullptr;
-                       if (queue.pop(task))
-                         task->execute();
-                     }
-                   });
-  
+  std::condition_variable start_consume;
+  std::condition_variable consume_done;
+  std::function<void(void)> consumeTask;
   std::vector<std::thread*> consumers;
-  std::vector<CutTask*> cutTasks;
+  std::vector<ThreadTask> cutTasks;
+  std::atomic_uint taskCounter;
+  std::atomic_bool terminate;
+  
   if (numThreads_ > 1) {
-    for (auto* cut : cuts)
-      cutTasks.push_back(new CutTask(*cut, eventWeights, queue));
+    consumeTask = [&cutTasks, &taskCounter, &terminate, &start_consume, &consume_done, &mutex]() {
+                    {
+                      std::unique_lock<std::mutex> lock(mutex);
+                      start_consume.wait(lock);
+                    }
+                    
+                    while (true) {
+                      unsigned iT(taskCounter.fetch_add(1));
+                      if (iT >= cutTasks.size()) {
+                        consume_done.notify_one();
+                        std::unique_lock<std::mutex> lock(mutex);
+                        start_consume.wait(lock);
+                      }
 
-    for (unsigned iT(0); iT != nThreads_; ++iT)
+                      if (terminate)
+                        return;
+
+                      cutTasks[iT]();
+                    }
+                  };
+
+    for (unsigned iT(0); iT != numThreads_; ++iT)
       consumers.push_back(new std::thread(consumeTask));
+    
+    cutTasks.emplace_back([&cuts, &eventWeights]() {
+                            cuts[0]->fillExprs(eventWeights);
+                          });
+
+    for (unsigned iC(1); iC != cuts.size(); ++iC)
+      cutTasks.emplace_back([&cuts, &eventWeights, iC]() {
+                              if (cuts[iC]->evaluate())
+                                cuts[iC]->fillExprs(eventWeights);
+                            });
+
+    terminate = false;
   }
 
   long long iEntry(_firstEntry);
@@ -605,15 +629,28 @@ multidraw::MultiDraw::execute(long _nEntries/* = -1*/, long _firstEntry/* = 0*/)
       }
     }
     else {
-      cutTasks[0]->executeFillers();
-      for (unsigned iC(1); iC != cutTasks.size(); ++iC)
-        queue.push(cutTasks[iC]);
-
-      while (true) {
-        std::lock_guard<std::mutex> lock(mutex);
-        if (queue.empty() && workCount == 0)
-          break;
+      taskCounter = 0;
+      {
+        std::unique_lock<std::mutex> lock(mutex);
+        start_consume.notify_all();
       }
+
+      {
+        std::unique_lock<std::mutex> lock(mutex);
+        consume_done.wait(lock, [&taskCounter, &cutTasks]()->bool { return taskCounter >= cutTasks.size(); });
+      }
+    }
+  }
+
+  if (numThreads_ > 1) {
+    // stop the consumer threads
+    std::unique_lock<std::mutex> lock(mutex);
+    terminate = true;
+    start_consume.notify_all();
+
+    for (auto* th : consumers) {
+      th->join();
+      delete th;
     }
   }
 
